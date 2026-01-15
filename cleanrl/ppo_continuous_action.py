@@ -30,6 +30,8 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
+    wandb_group_name: str = None
+    """the wandb's group name (if None, defaults to env_id)"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = False
@@ -62,6 +64,8 @@ class Args:
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
+    adv_mean: bool = True
+    """If True, subtract mean from advantages before dividing by std (only when norm_adv=True)"""
     clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
@@ -150,12 +154,14 @@ if __name__ == "__main__":
     if args.track:
         import wandb
 
+        group_name = args.wandb_group_name if args.wandb_group_name is not None else args.env_id
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=True,
             config=vars(args),
             name=run_name,
+            group=group_name,
             monitor_gym=True,
             save_code=True,
         )
@@ -274,7 +280,9 @@ if __name__ == "__main__":
 
                 mb_advantages = b_advantages[mb_inds]
                 if args.norm_adv:
-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
+                    if args.adv_mean:
+                        mb_advantages = mb_advantages - mb_advantages.mean()
+                    mb_advantages = mb_advantages / (mb_advantages.std() + 1e-8)
 
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
