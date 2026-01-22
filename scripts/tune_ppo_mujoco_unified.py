@@ -96,12 +96,6 @@ def main() -> None:
     parser.add_argument("--metric-last-n", type=int, default=20)
     parser.add_argument("--aggregation", type=str, choices=["average", "median", "min"], default="average")
     parser.add_argument(
-        "--norm-reward",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="是否在 env wrapper 里启用 NormalizeReward+clip（对应 ppo_continuous_action.py 的 Args.norm_reward）",
-    )
-    parser.add_argument(
         "--track-wandb",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -156,7 +150,6 @@ def main() -> None:
                 "total_timesteps": args.total_timesteps,
                 "num_trials": args.num_trials,
                 "num_seeds": args.num_seeds,
-                "norm_reward": args.norm_reward,
                 "aggregation": args.aggregation,
             },
         )
@@ -189,9 +182,13 @@ def main() -> None:
             for env_id in env_ids:
                 # Build argv for tyro
                 argv: List[str] = []
-                argv += [f"--{k}={v}" for k, v in params.items()]
+                # tyro 对 bool 参数更兼容 `--flag/--no-flag`，而不是 `--flag=True/False`
+                for k, v in params.items():
+                    if isinstance(v, bool):
+                        argv += _bool_flag(k, v)
+                    else:
+                        argv += [f"--{k}={v}"]
                 argv += [f"--env-id={env_id}", f"--seed={seed}", f"--exp-name={study_name}_{trial_tag}"]
-                argv += _bool_flag("norm-reward", args.norm_reward)
 
                 # Execute training script in-process
                 sys.argv = argv
@@ -225,14 +222,27 @@ def main() -> None:
         return final_score
 
     # 允许多 worker（多个进程）共享同一个 storage+study_name
-    study = optuna.create_study(
-        study_name=study_name,
-        direction="maximize",
-        storage=args.storage,
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=5),
-        sampler=optuna.samplers.TPESampler(),
-        load_if_exists=True,
-    )
+    # 多进程首次并发初始化 sqlite 时，可能出现并发建表竞态（table already exists）。
+    # 这里做一个轻量重试，避免 worker “秒退”。
+    study = None
+    for attempt in range(10):
+        try:
+            study = optuna.create_study(
+                study_name=study_name,
+                direction="maximize",
+                storage=args.storage,
+                pruner=optuna.pruners.MedianPruner(n_startup_trials=5),
+                sampler=optuna.samplers.TPESampler(),
+                load_if_exists=True,
+            )
+            break
+        except Exception as e:
+            msg = str(e)
+            if "table studies already exists" in msg or "already exists" in msg:
+                time.sleep(0.2 * (attempt + 1))
+                continue
+            raise
+    assert study is not None
     print("==========================================================================================")
     print("CleanRL unified MuJoCo tuning")
     print(f"study_name={study_name}")
@@ -241,8 +251,12 @@ def main() -> None:
     print(f"storage={args.storage}")
     print(f"envs={env_ids}")
     print(f"metric={args.metric} (last_n={args.metric_last_n}), aggregation={args.aggregation}")
-    print(f"norm_reward={args.norm_reward}")
     print("==========================================================================================")
+
+    if args.num_trials <= 0:
+        print("num_trials<=0: 初始化完成，未运行任何 trial。")
+        return
+
     study.optimize(objective, n_trials=args.num_trials)
     print(f"Best value: {study.best_trial.value}")
     print(f"Best params: {study.best_trial.params}")
