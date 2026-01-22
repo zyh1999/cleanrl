@@ -162,19 +162,14 @@ def main() -> None:
         )
 
     def objective(trial: optuna.Trial) -> float:
-        # ---- search space (common PPO knobs) ----
+        # ---- search space (focus on lr + batch/rollout sizing + epochs) ----
+        # 按你的要求：不调 gamma/gae_lambda/max_grad_norm/vf_coef/clip_coef（以及这里顺手不调 ent_coef），全部使用脚本默认值。
         params: Dict[str, object] = {
             "learning-rate": trial.suggest_float("learning-rate", 3e-5, 1e-3, log=True),
             "num-envs": trial.suggest_categorical("num-envs", [1, 4, 8]),
             "num-steps": trial.suggest_categorical("num-steps", [512, 1024, 2048, 4096]),
             "update-epochs": trial.suggest_categorical("update-epochs", [5, 10, 20]),
             "num-minibatches": trial.suggest_categorical("num-minibatches", [16, 32, 64]),
-            "clip-coef": trial.suggest_float("clip-coef", 0.1, 0.3),
-            "vf-coef": trial.suggest_float("vf-coef", 0.1, 2.0),
-            "ent-coef": trial.suggest_float("ent-coef", 0.0, 0.02),
-            "max-grad-norm": trial.suggest_float("max-grad-norm", 0.1, 2.0),
-            "gamma": trial.suggest_float("gamma", 0.97, 0.999),
-            "gae-lambda": trial.suggest_float("gae-lambda", 0.9, 0.99),
             # fixed for tuning speed / stability
             "total-timesteps": int(args.total_timesteps),
             "cuda": True,
