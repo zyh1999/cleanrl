@@ -66,6 +66,8 @@ class Args:
     """Toggles advantages normalization"""
     adv_mean: bool = True
     """If True, subtract mean from advantages before dividing by std (only when norm_adv=True)"""
+    norm_reward: bool = True
+    """If True, apply gym.wrappers.NormalizeReward + reward clipping (TransformReward) in the env wrapper"""
     clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
@@ -88,7 +90,7 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma):
+def make_env(env_id, idx, capture_video, run_name, gamma, norm_reward: bool):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
@@ -100,6 +102,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
         env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.NormalizeObservation(env)
         env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
+        if norm_reward:
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
         return env
@@ -154,7 +157,12 @@ if __name__ == "__main__":
     if args.track:
         import wandb
 
-        group_name = args.wandb_group_name if args.wandb_group_name is not None else args.env_id
+        base_group_name = args.wandb_group_name if args.wandb_group_name is not None else args.env_id
+        # Ensure reward-norm setting is visible in W&B group name (unless already encoded by caller)
+        if ("_rn0" in base_group_name) or ("_rn1" in base_group_name):
+            group_name = base_group_name
+        else:
+            group_name = f"{base_group_name}_rn{1 if args.norm_reward else 0}"
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
@@ -181,7 +189,7 @@ if __name__ == "__main__":
 
     # env setup
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
+        [make_env(args.env_id, i, args.capture_video, run_name, args.gamma, args.norm_reward) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 

@@ -44,6 +44,13 @@ WANDB_PROJECT="${WANDB_PROJECT:-cleanRL_mujoco_ppo_parallel}"
 WANDB_ENTITY="${WANDB_ENTITY:-}"
 # exp_name 会进入 run_name: {env_id}__{exp_name}__{seed}__{time}
 EXP_NAME="${EXP_NAME:-ppo_continuous_mujoco_parallel}"
+# reward normalization (gym.wrappers.NormalizeReward + clip)
+REWARD_NORM="${REWARD_NORM:-False}"          # True/False
+if [[ "${REWARD_NORM}" == "True" || "${REWARD_NORM}" == "true" || "${REWARD_NORM}" == "1" ]]; then
+  RN_TAG="rn1"
+else
+  RN_TAG="rn0"
+fi
 
 seeds=(9 1 2 0)
 mujoco_envs=(
@@ -69,6 +76,7 @@ echo "Seeds: ${seeds[*]}"
 echo "GPU_COUNT=${GPU_COUNT}, ENV_CONCURRENCY=${ENV_CONCURRENCY}"
 echo "TOTAL_TIMESTEPS=${TOTAL_TIMESTEPS}"
 echo "W&B: TRACK=${TRACK}, PROJECT=${WANDB_PROJECT}, ENTITY=${WANDB_ENTITY:-<none>}"
+echo "reward_norm=${REWARD_NORM} (${RN_TAG})"
 
 for ((i=0; i<${#mujoco_envs[@]}; i+=ENV_CONCURRENCY)); do
   batch_envs=("${mujoco_envs[@]:i:ENV_CONCURRENCY}")
@@ -99,9 +107,16 @@ for ((i=0; i<${#mujoco_envs[@]}; i+=ENV_CONCURRENCY)); do
         "--exp-name" "${EXP_NAME}"
         "--total-timesteps" "${TOTAL_TIMESTEPS}"
       )
+      if [[ "${REWARD_NORM}" != "True" && "${REWARD_NORM}" != "true" && "${REWARD_NORM}" != "1" ]]; then
+        ARGS+=("--no-norm-reward")
+      fi
 
       if [[ "${TRACK}" == "True" || "${TRACK}" == "true" || "${TRACK}" == "1" ]]; then
-        ARGS+=("--track" "--wandb-project-name" "${WANDB_PROJECT}")
+        ARGS+=(
+          "--track"
+          "--wandb-project-name" "${WANDB_PROJECT}"
+          "--wandb-group-name" "${env_id}_${RN_TAG}"
+        )
         if [[ -n "${WANDB_ENTITY}" ]]; then
           ARGS+=("--wandb-entity" "${WANDB_ENTITY}")
         fi
